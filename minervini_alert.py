@@ -12,6 +12,7 @@ Requirements:
   pip install requests schedule pytz
 """
 
+import re
 import sys
 import time
 import logging
@@ -69,35 +70,32 @@ def run_chartink_scan(scan_clause: str) -> list[dict]:
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
+            "Chrome/124.0.0.0 Safari/537.36"
         ),
-        "Referer": CHARTINK_HOME,
-        "X-Requested-With": "XMLHttpRequest",
     })
 
-    # Step 1: fetch CSRF token
+    # Step 1: fetch homepage to get cookies + CSRF token
     try:
         resp = session.get(CHARTINK_HOME, timeout=20)
         resp.raise_for_status()
     except requests.RequestException as e:
         raise RuntimeError(f"Could not reach Chartink homepage: {e}")
 
-    # Extract CSRF token from meta tag
-    csrf_token = None
-    for line in resp.text.splitlines():
-        if 'csrf-token' in line and 'content=' in line:
-            # <meta name="csrf-token" content="TOKEN">
-            start = line.find('content="') + len('content="')
-            end = line.find('"', start)
-            csrf_token = line[start:end]
-            break
+    # Robust CSRF extraction using regex on full HTML
+    match = re.search(r'<meta\s+name=["\']csrf-token["\']\s+content=["\']([^"\']+)["\']', resp.text)
+    if not match:
+        raise RuntimeError("Could not find CSRF token. Chartink may have changed its HTML.")
 
-    if not csrf_token:
-        raise RuntimeError("Could not find CSRF token on Chartink homepage.")
+    csrf_token = match.group(1)
+    log.info(f"     CSRF token obtained ({csrf_token[:8]}...)")
 
     session.headers.update({
         "X-CSRF-Token": csrf_token,
+        "Referer": CHARTINK_HOME,
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json, text/javascript, */*; q=0.01",
         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "Origin": "https://chartink.com",
     })
 
     # Step 2: POST scan
@@ -109,9 +107,11 @@ def run_chartink_scan(scan_clause: str) -> list[dict]:
     except requests.RequestException as e:
         raise RuntimeError(f"Chartink scan request failed: {e}")
     except ValueError:
-        raise RuntimeError(f"Chartink returned non-JSON response: {resp.text[:200]}")
+        raise RuntimeError(f"Chartink returned non-JSON response: {resp.text[:300]}")
 
+    log.info(f"     Raw response keys: {list(data.keys())}")
     stocks = data.get("data", [])
+    log.info(f"     Total stocks before filter: {len(stocks)}")
 
     # Filter by price
     filtered = [
