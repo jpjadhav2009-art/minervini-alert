@@ -110,24 +110,39 @@ def run_chartink_scan(scan_clause: str) -> list[dict]:
         raise RuntimeError(f"Chartink returned non-JSON response: {resp.text[:300]}")
 
     log.info(f"     Raw response keys: {list(data.keys())}")
-    log.info(f"     Raw response (first 300 chars): {str(data)[:300]}")
     stocks = data.get("data", [])
     log.info(f"     Total stocks before filter: {len(stocks)}")
 
-    # Debug: if empty, send raw response to Telegram so we can diagnose
     if not stocks:
         send_telegram(
-            f"🔧 <b>Debug — Chartink raw response</b>\n"
-            f"Scan: {scan_clause[:60]}...\n"
+            f"🔧 <b>Debug — Chartink returned 0 stocks</b>\n"
             f"<code>{str(data)[:400]}</code>"
         )
+        return []
 
-    # Filter by price
+    # Debug: show first stock's fields so we know exact key names
+    if stocks:
+        first = stocks[0]
+        log.info(f"     First stock sample: {first}")
+        send_telegram(
+            f"🔧 <b>Debug — First stock from Chartink</b>\n"
+            f"<code>{str(first)[:400]}</code>"
+        )
+
+    def safe_float(val) -> float:
+        """Parse float from string or number, handling commas."""
+        try:
+            return float(str(val).replace(",", "").strip())
+        except (ValueError, TypeError):
+            return 0.0
+
+    # Filter by price using safe parser
     filtered = [
         s for s in stocks
-        if cfg.MIN_PRICE <= float(s.get("close", 0)) <= cfg.MAX_PRICE
+        if cfg.MIN_PRICE <= safe_float(s.get("close", 0)) <= cfg.MAX_PRICE
     ]
 
+    log.info(f"     After price filter: {len(filtered)}")
     return filtered[:cfg.MAX_STOCKS_PER_ALERT]
 
 
@@ -193,11 +208,17 @@ def build_message(scan_key: str, stocks: list[dict]) -> str:
     )
 
     rows = []
+    def _f(val) -> float:
+        try:
+            return float(str(val).replace(",", "").strip())
+        except (ValueError, TypeError):
+            return 0.0
+
     for s in stocks:
-        sym = s.get("nsecode", s.get("symbol", "?")).upper()
-        close = float(s.get("close", 0))
-        chg = float(s.get("per_chg", 0))
-        vol = float(s.get("volume", 0))
+        sym = s.get("nsecode", s.get("symbol", s.get("name", "?"))).upper()
+        close = _f(s.get("close", s.get("ltp", s.get("cmp", 0))))
+        chg = _f(s.get("per_chg", s.get("pChange", 0)))
+        vol = _f(s.get("volume", s.get("Volume", 0)))
         trend = "🟢" if chg >= 0 else "🔴"
         sign = "+" if chg >= 0 else ""
         rows.append(
