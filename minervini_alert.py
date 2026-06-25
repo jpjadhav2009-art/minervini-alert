@@ -12,6 +12,7 @@ Requirements:
   pip install requests schedule pytz yfinance pandas numpy
 """
 
+import os
 import sys
 import time
 import logging
@@ -24,6 +25,14 @@ import yfinance as yf
 from datetime import datetime
 
 import minervini_config as cfg
+
+# Allow GitHub Actions secrets to override config file values
+_env_token = os.environ.get("TELEGRAM_TOKEN")
+_env_chat  = os.environ.get("TELEGRAM_CHAT_ID")
+if _env_token:
+    cfg.TELEGRAM_TOKEN = _env_token
+if _env_chat:
+    cfg.TELEGRAM_CHAT_ID = _env_chat
 
 # ─── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
