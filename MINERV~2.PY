@@ -19,6 +19,11 @@ import logging
 import requests
 import schedule
 import pytz
+try:
+    import cloudscraper
+    HAS_CLOUDSCRAPER = True
+except ImportError:
+    HAS_CLOUDSCRAPER = False
 from datetime import datetime
 
 import minervini_config as cfg
@@ -65,20 +70,26 @@ def run_chartink_scan(scan_clause: str) -> list[dict]:
     POST a scan clause to Chartink and return a list of stock dicts.
     Each dict: {name, nsecode, close, per_chg, volume}
     """
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-    })
+    # Use cloudscraper to bypass Cloudflare bot protection
+    if HAS_CLOUDSCRAPER:
+        session = cloudscraper.create_scraper(
+            browser={"browser": "chrome", "platform": "windows", "mobile": False}
+        )
+    else:
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+        })
 
     # Step 1: fetch homepage to get cookies + CSRF token
     try:
-        resp = session.get(CHARTINK_HOME, timeout=20)
+        resp = session.get(CHARTINK_HOME, timeout=30)
         resp.raise_for_status()
-    except requests.RequestException as e:
+    except Exception as e:
         raise RuntimeError(f"Could not reach Chartink homepage: {e}")
 
     # Robust CSRF extraction using regex on full HTML
