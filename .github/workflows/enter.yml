@@ -1,0 +1,30 @@
+name: Minervini Trader - Entry
+
+on:
+  schedule:
+    - cron: '46 3 * * 1-5'   # 9:16 AM IST (Mon-Fri) -- just after market open
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  enter:
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests schedule pytz yfinance pandas numpy
+      - run: python minervini_trader.py --enter
+      - name: Commit updated positions
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ || true
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update open positions (entry) [skip ci]"
+          git push
