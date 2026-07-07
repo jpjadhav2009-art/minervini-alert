@@ -2,11 +2,8 @@ name: Minervini Alert
 
 on:
   schedule:
-    - cron: '45 9 * * 1-5'   # 3:15 PM IST (Mon-Fri) -- runs breakout + universe + vcp scans
-  workflow_dispatch:          # lets you trigger manually to test
-
-permissions:
-  contents: write   # needed to commit the breakout watchlist back to the repo
+    - cron: '45 9 * * 1-5'   # 3:15 PM IST (Mon-Fri)
+  workflow_dispatch:           # lets you trigger manually to test
 
 jobs:
   run:
@@ -21,10 +18,3 @@ jobs:
           python-version: '3.11'
       - run: pip install requests schedule pytz yfinance pandas numpy
       - run: python minervini_alert.py --now
-      - name: Commit updated watchlist
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/ || true
-          git diff --quiet && git diff --staged --quiet || git commit -m "Update breakout watchlist [skip ci]"
-          git push

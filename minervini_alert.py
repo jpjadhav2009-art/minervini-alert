@@ -5,16 +5,15 @@ Downloads NSE stock data directly from Yahoo Finance.
 No Chartink scraping — works from anywhere including GitHub Actions.
 
 Usage:
-python minervini_alert.py # Run on schedule (3:15 PM + 3:30 PM IST)
-python minervini_alert.py --now # Run all scans immediately (test)
+  python minervini_alert.py          # Run on schedule (3:15 PM + 3:30 PM IST)
+  python minervini_alert.py --now    # Run all scans immediately (test)
 
 Requirements:
-pip install requests schedule pytz yfinance pandas numpy
+  pip install requests schedule pytz yfinance pandas numpy
 """
 
 import os
 import sys
-import json
 import time
 import logging
 import requests
@@ -29,7 +28,7 @@ import minervini_config as cfg
 
 # Allow GitHub Actions secrets to override config file values
 _env_token = os.environ.get("TELEGRAM_TOKEN")
-_env_chat = os.environ.get("TELEGRAM_CHAT_ID")
+_env_chat  = os.environ.get("TELEGRAM_CHAT_ID")
 if _env_token:
     cfg.TELEGRAM_TOKEN = _env_token
 if _env_chat:
@@ -38,7 +37,7 @@ if _env_chat:
 # ─── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
+    format="%(asctime)s  %(levelname)s  %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 log = logging.getLogger(__name__)
@@ -137,45 +136,41 @@ def check_stock(raw: pd.DataFrame, symbol: str) -> dict | None:
     """
     Apply all 8 Minervini Trend Template criteria to a stock.
     Returns a result dict if all criteria pass, else None.
-
-    Also computes base_low / pivot_high so the trading automation
-    (minervini_trader.py) knows the VCP stop-loss level and breakout pivot
-    without having to re-download or re-derive them independently.
     """
     ticker = symbol + ".NS"
     try:
         if isinstance(raw.columns, pd.MultiIndex):
-            close = raw["Close"][ticker].dropna()
-            high = raw["High"][ticker].dropna()
-            low = raw["Low"][ticker].dropna()
+            close  = raw["Close"][ticker].dropna()
+            high   = raw["High"][ticker].dropna()
+            low    = raw["Low"][ticker].dropna()
             volume = raw["Volume"][ticker].dropna()
         else:
-            close = raw["Close"].dropna()
-            high = raw["High"].dropna()
-            low = raw["Low"].dropna()
+            close  = raw["Close"].dropna()
+            high   = raw["High"].dropna()
+            low    = raw["Low"].dropna()
             volume = raw["Volume"].dropna()
 
         if len(close) < 221:
             return None  # Not enough history
 
         # Moving averages
-        sma50 = close.rolling(50).mean()
+        sma50  = close.rolling(50).mean()
         sma150 = close.rolling(150).mean()
         sma200 = close.rolling(200).mean()
         sma221 = close.rolling(221).mean()
         avg_vol50 = volume.rolling(50).mean()
 
-        c = close.iloc[-1]
+        c   = close.iloc[-1]
         s50 = sma50.iloc[-1]
         s150= sma150.iloc[-1]
         s200= sma200.iloc[-1]
         s221= sma221.iloc[-1]
-        v = volume.iloc[-1]
-        av = avg_vol50.iloc[-1]
+        v   = volume.iloc[-1]
+        av  = avg_vol50.iloc[-1]
 
         # 52-week high/low (252 trading days)
-        high52 = high.rolling(252).max().iloc[-1]
-        low52 = low.rolling(252).min().iloc[-1]
+        high52  = high.rolling(252).max().iloc[-1]
+        low52   = low.rolling(252).min().iloc[-1]
         close63 = close.iloc[-63] if len(close) >= 63 else None
 
         # Trend Template — all 8 criteria
@@ -202,29 +197,23 @@ def check_stock(raw: pd.DataFrame, symbol: str) -> dict | None:
         # VCP flags
         range30 = high.rolling(30).max().iloc[-1] - low.rolling(30).min().iloc[-1]
         range60 = high.rolling(60).max().iloc[-1] - low.rolling(60).min().iloc[-1]
-        vcp_forming = (range30 < 0.80 * range60) and (v < av)
-        high30_lag1 = high.iloc[-31:-1].max() if len(high) >= 31 else None
-        low30_lag1  = low.iloc[-31:-1].min() if len(low) >= 31 else None
+        vcp_forming  = (range30 < 0.80 * range60) and (v < av)
+        high30_lag1  = high.iloc[-31:-1].max() if len(high) >= 31 else None
         vcp_breakout = (high30_lag1 is not None) and (c > high30_lag1) and (v > 1.5 * av)
 
         return {
-            "symbol": symbol,
-            "close": round(c, 2),
-            "pct_chg": round(pct_chg, 2),
-            "volume": v,
-            "avg_vol": av,
+            "symbol":      symbol,
+            "close":       round(c, 2),
+            "pct_chg":     round(pct_chg, 2),
+            "volume":      v,
+            "avg_vol":     av,
             "vcp_forming": vcp_forming,
             "vcp_breakout":vcp_breakout,
-            # Stop-loss / pivot context for the trading automation --
-            # base_low is the floor of the 30-day base just before today's
-            # breakout bar (used as the initial stop-loss level); pivot_high
-            # is the level that was broken out above.
-            "base_low": round(float(low30_lag1), 2) if low30_lag1 is not None else None,
-            "pivot_high": round(float(high30_lag1), 2) if high30_lag1 is not None else None,
         }
 
     except Exception:
         return None
+
 
 def run_scan(raw: pd.DataFrame, scan_type: str) -> list[dict]:
     """
@@ -246,28 +235,6 @@ def run_scan(raw: pd.DataFrame, scan_type: str) -> list[dict]:
     # Sort by % change descending
     results.sort(key=lambda x: x["pct_chg"], reverse=True)
     return results[:cfg.MAX_STOCKS_PER_ALERT]
-
-# ─── Persistence (for the trading automation) ────────────────────────────────
-
-def save_breakout_watchlist(stocks: list[dict]):
-    """
-    Persist today's breakout list to data/breakout_<date>.json so
-    minervini_trader.py can read it tomorrow morning at market open and
-    place entries. Committed back to the repo by the GitHub Actions
-    workflow (this script only writes the file).
-    """
-    data_dir = getattr(cfg, "DATA_DIR", "data")
-    os.makedirs(data_dir, exist_ok=True)
-    date_str = now_ist().strftime("%Y-%m-%d")
-    path = os.path.join(data_dir, f"breakout_{date_str}.json")
-    payload = {
-        "date": date_str,
-        "generated_at": now_ist().isoformat(),
-        "stocks": stocks,
-    }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
-    log.info(f"Saved breakout watchlist -> {path} ({len(stocks)} stock(s))")
 
 # ─── Telegram ─────────────────────────────────────────────────────────────────
 
@@ -318,13 +285,13 @@ SCAN_META = {
         "emoji": "🚀",
         "name": "VCP Breakout (BUY Signal)",
         "desc": "Pivot breakout + volume surge — enter tomorrow at open",
-        "footer": "⚡ <b>ACTION:</b> Review charts. Buy at open tomorrow.\n SL = VCP base low | Target: 2R and 3R\n🤖 <i>Auto-entry will size &amp; paper-trade this list at tomorrow's open.</i>",
+        "footer": "⚡ <b>ACTION:</b> Review charts. Buy at open tomorrow.\n   SL = VCP base low  |  Target: 2R and 3R",
     },
 }
 
 def build_message(scan_type: str, stocks: list[dict]) -> str:
     m = SCAN_META[scan_type]
-    ts = now_ist().strftime("%d %b %Y %H:%M IST")
+    ts = now_ist().strftime("%d %b %Y  %H:%M IST")
     div = "─" * 32
 
     if not stocks:
@@ -344,14 +311,14 @@ def build_message(scan_type: str, stocks: list[dict]) -> str:
 
     rows = []
     for s in stocks:
-        sym = s["symbol"]
-        c = s["close"]
-        chg = s["pct_chg"]
-        vol = s["volume"]
+        sym  = s["symbol"]
+        c    = s["close"]
+        chg  = s["pct_chg"]
+        vol  = s["volume"]
         sign = "+" if chg >= 0 else ""
         icon = "🟢" if chg >= 0 else "🔴"
         rows.append(
-            f"  <code>{sym:<14} ₹{c:>8.1f} {sign}{chg:.2f}% {format_volume(vol)}</code> {icon}"
+            f"  <code>{sym:<14} ₹{c:>8.1f}  {sign}{chg:.2f}%  {format_volume(vol)}</code> {icon}"
         )
 
     return header + "\n".join(rows) + f"\n\n{div}\n{m['footer']}"
@@ -377,14 +344,12 @@ def run_scans(scan_keys: list[str], label: str = ""):
         log.info(f"  → Scanning {key} ...")
         try:
             stocks = run_scan(raw, key)
-            log.info(f"    {len(stocks)} result(s)")
-            if key == "breakout":
-                save_breakout_watchlist(stocks)
+            log.info(f"     {len(stocks)} result(s)")
             msg = build_message(key, stocks)
             send_telegram(msg)
-            log.info(f"    ✓ Sent")
+            log.info(f"     ✓ Sent")
         except Exception as e:
-            log.error(f"    Error: {e}")
+            log.error(f"     Error: {e}")
             send_telegram(f"⚠️ <b>Error in {key} scan</b>: {str(e)[:200]}")
         time.sleep(2)
 
@@ -401,11 +366,11 @@ def main():
         sys.exit(1)
 
     if "--now" in sys.argv:
-        log.info("⚡ --now flag — running all scans immediately")
+        log.info("⚡  --now flag — running all scans immediately")
         send_telegram(
             "🔔 <b>Minervini Bot — Test Run</b>\n"
             "Downloading NSE data from Yahoo Finance...\n"
-            f"🕐 {now_ist().strftime('%d %b %Y %H:%M IST')}"
+            f"🕐 {now_ist().strftime('%d %b %Y  %H:%M IST')}"
         )
         run_scans(["breakout", "universe", "vcp"], label="Test run")
         log.info("Done.")
@@ -416,7 +381,7 @@ def main():
         "Source: Yahoo Finance (NSE data)\n"
         "Schedule: 15:15 IST (Breakout) + 15:30 IST (Universe + VCP)\n"
         f"Universe: {len(NSE_UNIVERSE)} NSE stocks\n"
-        f"🕐 {now_ist().strftime('%d %b %Y %H:%M IST')}"
+        f"🕐 {now_ist().strftime('%d %b %Y  %H:%M IST')}"
     )
 
     schedule.every().day.at("15:15").do(job_1515)
