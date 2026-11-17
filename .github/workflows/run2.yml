@@ -1,0 +1,25 @@
+name: Minervini Alert (Part 2)
+
+on:
+  schedule:
+    # 09:52 UTC = 3:22 PM IST (Mon-Fri), five minutes behind part 1 so the two
+    # runs do not compete for Yahoo Finance or hit Telegram's flood limits.
+    - cron: '52 9 * * 1-5'
+  workflow_dispatch:
+
+# No keep-alive step here: part 1 already pushes the weekly heartbeat, and two
+# workflows committing to main on the same morning would race each other.
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests schedule pytz yfinance pandas numpy
+      - run: python minervini_alert.py --now --part 2
