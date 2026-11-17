@@ -2,8 +2,15 @@ name: Minervini Alert
 
 on:
   schedule:
-    - cron: '45 9 * * 1-5'   # 3:15 PM IST (Mon-Fri)
+    # 09:47 UTC = 3:17 PM IST (Mon-Fri).
+    # Deliberately an "odd" minute: GitHub's free scheduler queues jobs on
+    # :00/:15/:30/:45 behind everyone else's, which was delaying this run
+    # by 4-8 hours every day.
+    - cron: '47 9 * * 1-5'
   workflow_dispatch:           # lets you trigger manually to test
+
+permissions:
+  contents: write              # needed by the keep-alive step below
 
 jobs:
   run:
@@ -18,3 +25,38 @@ jobs:
           python-version: '3.11'
       - run: pip install requests schedule pytz yfinance pandas numpy
       - run: python minervini_alert.py --now
+
+      # ── Keep-alive ──────────────────────────────────────────────────────
+      # GitHub disables scheduled workflows after ~60 days with no repository
+      # activity. That is exactly what killed these alerts on 10 Nov 2026.
+      # This step pushes a small heartbeat commit at most once a week, so the
+      # repo never goes idle. It runs even if the scan step failed.
+      - name: Keep repository active
+        if: always()
+        run: |
+          set -euo pipefail
+
+          last_commit=$(git log -1 --format=%ct)
+          now=$(date -u +%s)
+          age_days=$(( (now - last_commit) / 86400 ))
+          echo "Days since last commit: ${age_days}"
+
+          if [ "${age_days}" -lt 7 ]; then
+            echo "Repo active within the last 7 days - no heartbeat needed."
+            exit 0
+          fi
+
+          mkdir -p .github
+          date -u '+Minervini Alert last ran: %Y-%m-%d %H:%M:%S UTC' > .github/last_run.txt
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/last_run.txt
+
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "Keep-alive heartbeat $(date -u '+%Y-%m-%d') [skip ci]"
+          git push
