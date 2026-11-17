@@ -1,18 +1,24 @@
 # ============================================================
 #  Minervini SEPA — Configuration
-#  Fill in your Telegram credentials below, then run:
+#  Credentials come from the environment - see below.
 #    python minervini_alert.py --now   (test immediately)
 #    python minervini_alert.py         (run on schedule)
 # ============================================================
 
 # --- Telegram Credentials ---
-# 1. Open Telegram → search @BotFather → /newbot → copy token here
-TELEGRAM_TOKEN = "8503187125:AAHbEWs2uw_u1wjzvadU1fKxj2AfH_cz4NU"
+# Never hardcode these: this repository is public.
+# GitHub Actions supplies them from repository secrets
+# (Settings -> Secrets and variables -> Actions).
+# For a local run, set them in your shell first:
+#   PowerShell:  $env:TELEGRAM_TOKEN = "..."
+#   bash:        export TELEGRAM_TOKEN=...
+# Token from @BotFather; chat id from
+#   https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates
+import os
 
-# 2. Send ANY message to your bot, then visit:
-#    https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates
-#    Copy the number inside "chat": {"id": XXXXXXX}
-TELEGRAM_CHAT_ID = "236473272"
+TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",   "YOUR_BOT_TOKEN_HERE")
+
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
 
 # --- Schedule (IST, Mon–Fri only) ---
 RUN_TIMES = {
