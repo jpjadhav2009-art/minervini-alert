@@ -238,7 +238,10 @@ def run_scan(raw: pd.DataFrame, scan_type: str) -> list[dict]:
 
 # ─── Telegram ─────────────────────────────────────────────────────────────────
 
+SEND_ATTEMPTS = 3   # a single TCP reset should not cost a whole alert
+
 def send_telegram(message: str) -> bool:
+    """Send one Telegram message. Retries transient failures; returns success."""
     url = f"https://api.telegram.org/bot{cfg.TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": cfg.TELEGRAM_CHAT_ID,
@@ -246,16 +249,37 @@ def send_telegram(message: str) -> bool:
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
-    try:
-        resp = requests.post(url, json=payload, timeout=15)
-        data = resp.json()
-        if not data.get("ok"):
-            log.error(f"Telegram error: {data.get('description')}")
-            return False
-        return True
-    except Exception as e:
-        log.error(f"Telegram request failed: {e}")
-        return False
+    for attempt in range(1, SEND_ATTEMPTS + 1):
+        tag = f"attempt {attempt}/{SEND_ATTEMPTS}"
+        try:
+            resp = requests.post(url, json=payload, timeout=15)
+            data = resp.json()
+
+            if data.get("ok"):
+                if attempt > 1:
+                    log.info(f"     Telegram send succeeded on {tag}")
+                return True
+
+            log.error(f"Telegram error ({tag}): {data.get('description')}")
+
+            # Flood control - obey the server's own wait time.
+            retry_after = (data.get("parameters") or {}).get("retry_after")
+            if retry_after:
+                time.sleep(min(int(retry_after), 30))
+                continue
+
+            # A 4xx other than 429 means the request itself is bad (message too
+            # long, bad chat id, bad HTML) - retrying cannot help.
+            if 400 <= resp.status_code < 500 and resp.status_code != 429:
+                return False
+
+        except Exception as e:
+            log.error(f"Telegram request failed ({tag}): {e}")
+
+        if attempt < SEND_ATTEMPTS:
+            time.sleep(2 * attempt)       # 2s, then 4s
+
+    return False
 
 def validate_config() -> bool:
     if cfg.TELEGRAM_TOKEN == "YOUR_BOT_TOKEN_HERE":
@@ -325,12 +349,15 @@ def build_message(scan_type: str, stocks: list[dict]) -> str:
 
 # ─── Job Runner ───────────────────────────────────────────────────────────────
 
-def run_scans(scan_keys: list[str], label: str = ""):
+def run_scans(scan_keys: list[str], label: str = "") -> int:
+    """Run the scans. Returns how many alerts did NOT get through."""
     if not is_weekday():
         log.info(f"Weekend — skipping {label}")
-        return
+        return 0
 
     log.info(f"Running: {scan_keys}")
+
+    failures = 0
 
     try:
         raw = download_data()
@@ -338,7 +365,7 @@ def run_scans(scan_keys: list[str], label: str = ""):
         msg = f"⚠️ <b>Minervini Bot Error</b>\nFailed to download data: {str(e)[:200]}"
         log.error(msg)
         send_telegram(msg)
-        return
+        return 1
 
     for key in scan_keys:
         log.info(f"  → Scanning {key} ...")
@@ -346,12 +373,18 @@ def run_scans(scan_keys: list[str], label: str = ""):
             stocks = run_scan(raw, key)
             log.info(f"     {len(stocks)} result(s)")
             msg = build_message(key, stocks)
-            send_telegram(msg)
-            log.info(f"     ✓ Sent")
+            if send_telegram(msg):
+                log.info(f"     ✓ Sent")
+            else:
+                log.error(f"     !! NOT SENT - {key} alert lost")
+                failures += 1
         except Exception as e:
             log.error(f"     Error: {e}")
             send_telegram(f"⚠️ <b>Error in {key} scan</b>: {str(e)[:200]}")
+            failures += 1
         time.sleep(2)
+
+    return failures
 
 def job_1515():
     run_scans(["breakout"], label="3:15 PM Breakout")
@@ -372,8 +405,11 @@ def main():
             "Downloading NSE data from Yahoo Finance...\n"
             f"🕐 {now_ist().strftime('%d %b %Y  %H:%M IST')}"
         )
-        run_scans(["breakout", "universe", "vcp"], label="Test run")
-        log.info("Done.")
+        failures = run_scans(["breakout", "universe", "vcp"], label="Test run")
+        if failures:
+            log.error(f"{failures} alert(s) failed to send - exiting non-zero")
+            sys.exit(1)
+        log.info("Done - all alerts delivered.")
         return
 
     send_telegram(
