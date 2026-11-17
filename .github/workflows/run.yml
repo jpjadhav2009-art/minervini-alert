@@ -2,11 +2,13 @@ name: Minervini Alert
 
 on:
   schedule:
-    # 09:47 UTC = 3:17 PM IST (Mon-Fri).
-    # Deliberately an "odd" minute: GitHub's free scheduler queues jobs on
-    # :00/:15/:30/:45 behind everyone else's, which was delaying this run
-    # by 4-8 hours every day.
-    - cron: '47 9 * * 1-5'
+    # 10:33 UTC = 4:03 PM IST (Mon-Fri).
+    # NSE closes at 3:30 PM IST. Scanning before the close reads a daily candle
+    # that is still forming, so breakout and VCP signals would be judged on an
+    # unconfirmed close. This runs half an hour after the bell.
+    # The odd minute is deliberate: GitHub's free scheduler queues jobs on
+    # :00/:15/:30/:45 behind everyone else's, delaying them by hours.
+    - cron: '33 10 * * 1-5'
   workflow_dispatch:           # lets you trigger manually to test
 
 permissions:

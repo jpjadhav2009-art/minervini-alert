@@ -2,9 +2,10 @@ name: Minervini Alert (Part 2)
 
 on:
   schedule:
-    # 09:52 UTC = 3:22 PM IST (Mon-Fri), five minutes behind part 1 so the two
-    # runs do not compete for Yahoo Finance or hit Telegram's flood limits.
-    - cron: '52 9 * * 1-5'
+    # 10:38 UTC = 4:08 PM IST (Mon-Fri). Half an hour after the 3:30 PM close,
+    # so the daily candle is confirmed, and five minutes behind part 1 so the
+    # two runs do not compete for Yahoo Finance or hit Telegram's flood limits.
+    - cron: '38 10 * * 1-5'
   workflow_dispatch:
 
 # No keep-alive step here: part 1 already pushes the weekly heartbeat, and two

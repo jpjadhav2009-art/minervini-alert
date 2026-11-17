@@ -22,8 +22,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
 
 # --- Schedule (IST, Mon–Fri only) ---
 RUN_TIMES = {
-    "15:15": ["breakout"],        # Scan 3 only — BUY signals
-    "15:30": ["universe", "vcp"], # Scan 1 + Scan 2 — watchlist update
+    "16:00": ["breakout"],        # Scan 3 only — BUY signals
+    "16:05": ["universe", "vcp"], # Scan 1 + Scan 2 — watchlist update
 }
 
 # --- Filters ---

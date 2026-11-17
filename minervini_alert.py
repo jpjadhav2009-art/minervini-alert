@@ -5,7 +5,7 @@ Downloads NSE stock data directly from Yahoo Finance.
 No Chartink scraping — works from anywhere including GitHub Actions.
 
 Usage:
-  python minervini_alert.py          # Run on schedule (3:15 PM + 3:30 PM IST)
+  python minervini_alert.py          # Run on schedule (4:00 PM + 4:05 PM IST, after the close)
   python minervini_alert.py --now    # Run all scans immediately (test)
 
 Requirements:
@@ -426,11 +426,11 @@ def run_scans(scan_keys: list[str], label: str = "") -> int:
 
     return failures
 
-def job_1515():
-    run_scans(["breakout"], label="3:15 PM Breakout")
+def job_breakout():
+    run_scans(["breakout"], label="4:00 PM Breakout")
 
-def job_1530():
-    run_scans(["universe", "vcp"], label="3:30 PM Universe+VCP")
+def job_watchlist():
+    run_scans(["universe", "vcp"], label="4:05 PM Universe+VCP")
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -470,15 +470,17 @@ def main():
     send_telegram(
         "✅ <b>Minervini SEPA Bot Started</b>\n"
         "Source: Yahoo Finance (NSE data)\n"
-        "Schedule: 15:15 IST (Breakout) + 15:30 IST (Universe + VCP)\n"
+        "Schedule: 16:00 IST (Breakout) + 16:05 IST (Universe + VCP)\n"
         f"Universe: {len(NSE_UNIVERSE)} NSE stocks\n"
         f"🕐 {now_ist().strftime('%d %b %Y  %H:%M IST')}"
     )
 
-    schedule.every().day.at("15:15").do(job_1515)
-    schedule.every().day.at("15:30").do(job_1530)
+    # NSE closes at 15:30 IST. Scanning before then reads a still-forming
+    # daily candle, so every run waits for the confirmed close.
+    schedule.every().day.at("16:00").do(job_breakout)
+    schedule.every().day.at("16:05").do(job_watchlist)
 
-    log.info("Scheduler running. Waiting for 15:15 and 15:30 IST ...")
+    log.info("Scheduler running. Waiting for 16:00 and 16:05 IST ...")
     try:
         while True:
             schedule.run_pending()
