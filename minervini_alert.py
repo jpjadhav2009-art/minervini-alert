@@ -37,12 +37,21 @@ if _env_chat:
 # ─── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s  %(levelname)s  %(message)s",
+    format="%(asctime)s IST  %(levelname)s  %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 log = logging.getLogger(__name__)
 
 IST = pytz.timezone("Asia/Kolkata")
+
+# Log timestamps follow the machine clock, which is UTC on a GitHub runner.
+# Convert them so every time this bot prints - logs and alerts alike - is IST.
+def _ist_logtime(secs):
+    return datetime.fromtimestamp(secs, IST).timetuple()
+
+# staticmethod, not a bare function: a plain function assigned here would be
+# bound as a method and called with (self, secs).
+logging.Formatter.converter = staticmethod(_ist_logtime)
 
 # ─── NSE Universe (Nifty 500 major stocks) ───────────────────────────────────
 # yfinance uses .NS suffix for NSE stocks
@@ -494,6 +503,7 @@ def main():
 
     # NSE closes at 15:30 IST. Scanning before then reads a still-forming
     # daily candle, so every run waits for the confirmed close.
+    # schedule reads the machine clock, so run this on an IST machine.
     schedule.every().day.at("16:00").do(job_breakout)
     schedule.every().day.at("16:05").do(job_watchlist)
 
