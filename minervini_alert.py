@@ -22,7 +22,7 @@ import pytz
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import minervini_config as cfg
 
@@ -140,8 +140,22 @@ NSE_UNIVERSE = NSE_UNIVERSE_PART1  # the universe the current run scans
 def now_ist() -> datetime:
     return datetime.now(IST)
 
+SESSION_ROLLOVER_HOUR = 6   # a run before 6 AM IST belongs to the previous session
+
+def session_date() -> datetime:
+    """The trading session this run reports on.
+
+    GitHub's scheduler routinely delivers these runs 8+ hours late, well past
+    midnight IST, so the wall clock is not the session being scanned. A run in
+    the small hours is reporting on the previous day's close.
+    """
+    t = now_ist()
+    if t.hour < SESSION_ROLLOVER_HOUR:
+        t -= timedelta(days=1)
+    return t
+
 def is_weekday() -> bool:
-    return now_ist().weekday() < 5
+    return session_date().weekday() < 5
 
 def format_volume(vol: float) -> str:
     if vol >= 1_00_00_000:
@@ -355,7 +369,7 @@ SCAN_META = {
 def build_message(scan_type: str, stocks: list[dict]) -> str:
     m = dict(SCAN_META[scan_type])
     m["desc"] = f"{m['desc']}\nPart {PART_NO} · {len(NSE_UNIVERSE)} stocks"
-    ts = now_ist().strftime("%d %b %Y  %H:%M IST")
+    ts = f"{session_date():%d %b %Y} close  |  sent {now_ist():%H:%M IST}"
     div = "─" * 32
 
     if not stocks:
@@ -455,6 +469,9 @@ def main():
 
     if "--now" in sys.argv:
         log.info("⚡  --now flag — running all scans immediately")
+        if not is_weekday():
+            log.info(f"{session_date():%a %d %b} is not a trading day - nothing to scan.")
+            return
         send_telegram(
             f"🔔 <b>Minervini Bot — Test Run (Part {PART_NO})</b>\n"
             "Downloading NSE data from Yahoo Finance...\n"
@@ -464,7 +481,7 @@ def main():
         if failures:
             log.error(f"{failures} alert(s) failed to send - exiting non-zero")
             sys.exit(1)
-        log.info("Done - all alerts delivered.")
+        log.info(f"Done - all alerts delivered for the {session_date():%a %d %b} close.")
         return
 
     send_telegram(
